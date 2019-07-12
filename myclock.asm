@@ -13,11 +13,7 @@ STACK ENDS
 CODE SEGMENT
 	ASSUME CS:CODE, SS:STACK, DS:DATA
 START:
-    call input_time
     call clear_screen
-    call print_time
-    mov ax, 4C00H
-    int 21H
 clock:
     ; 显示菜单
     mov ax,DATA
@@ -54,11 +50,43 @@ operation_one:
         jz START
 
 operation_two:
+    call clear_screen
     call cursor_reset
     call input_time
-    jmp THE_END
+    op_two_loop:
+        call clear_screen
+        call cursor_reset
+        call print_time
+        call one_second
+        call add_one_second
+        mov ah, 01H
+        int 16H   ; 对缓冲区进行检查，空则ZF=1，不空则ZF=0
+        jz op_two_loop
+        mov ah, 00H
+        int 16H
+        cmp al, 1BH
+        jz START
+
 operation_three:
-    ret
+    call clear_screen
+    call cursor_reset
+    call input_time
+    mov di, 0
+    op_three_loop:
+        call clear_screen
+        call cursor_reset
+        call print_time
+        call one_second
+        call sub_one_second
+        cmp di, 1
+        jz THE_END
+        mov ah, 01H
+        int 16H   ; 对缓冲区进行检查，空则ZF=1，不空则ZF=0
+        jz op_three_loop
+        mov ah, 00H
+        int 16H
+        cmp al, 1BH
+        jz START
 
 check_esc:
     mov ah, 01H
@@ -83,6 +111,9 @@ get_system_time:
 
 
 print_time:
+    push ax
+    push bx
+    push dx
     mov al,ch     ; Hour is in CH
     aam           ; 把AL转为十进制ah放十位，AL放个位?
     mov bx,ax
@@ -101,6 +132,9 @@ print_time:
     aam
     mov bx,ax
     call DISP
+    pop dx
+    pop bx
+    pop ax
     ret
     
 ; 等待一秒
@@ -123,18 +157,26 @@ THE_END:
     int 21H
 
 cursor_reset:
+    push ax
+    push bx
+    push dx
     mov bh, 0 ; 页
     mov dh, 0 ; 行
     mov dl, 0 ; 列
     mov ah, 2
     int 10H
+    pop dx
+    pop bx
+    pop ax
     ret
 
 clear_screen:
+    push ax
     mov ah,15
     int 10h
     mov ah,0
     int 10h
+    pop ax
     ret
 
 input_time:
@@ -264,45 +306,40 @@ check_BDF:
     DONE_BDF:
         ret
 
-; 输入：AX AH和AL中各一个字符，比如： 'A' '9'
-; 输出：AL 数值， A9
-THE_TWO:    
-          CMP AL, 39H         ; 字符9
-          JLE ARITHMOS
-          CMP AL, 46H         ; 字符F
-          JLE MIKR
-          SUB AL, 57H         ; 字符f
-          JMP NEXT
-                                    
-  MIKR:   SUB AL, 37H        
-          JMP NEXT
+; 时CH 分CL 秒DH
+; 加一秒后对CH、CL、DH进行修改
+add_one_second:
+    inc dh
+    cmp dh, 3CH
+    jl add_one_second_done
+    mov dh, 0
+    inc cl
+    cmp cl, 3CH
+    jl add_one_second_done
+    mov cl, 0
+    inc ch
+    cmp ch, 18H ; 24
+    jl add_one_second_done
+    mov ch, 0
+    add_one_second_done:
+        ret
 
- ARITHMOS:SUB AL, 30H   
+sub_one_second:
+    dec dh
+    cmp dh, 0
+    jge sub_one_second_done
+    mov dh, 3BH
+    dec cl
+    cmp cl, 0
+    jge sub_one_second_done
+    mov cl, 38H
+    dec ch
+    cmp ch, 0
+    jge sub_one_second_done
+    mov di, 1
+    sub_one_second_done:
+        ret
 
-  NEXT:   CMP AH, 39H   
-          JLE ARITHMOT
-          CMP AH, 46H
-          JLE MIKRO2
-          SUB AL, 57H
-          JMP TDONE
-
- MIKRO2:  SUB AH, 37H
-          JMP TDONE
-
- ARITHMOT:SUB AH, 30H
-
-  TDONE:  PUSH DX
-		  PUSH BX
-		  MOV BL,AL
-		  MOV AL,AH
-		  MOV AH,0
-          ; 乘法左移4位
-		  MOV DX,16  
-		  MUL DX    ; 高位在DX中 低位在AX中
-          OR AL, BL     
-		  POP BX
-		  POP DX
-          RET
 
 ;Display Part
 ; 输入BX，BH和BL中是一个十进制数的ASCII码
